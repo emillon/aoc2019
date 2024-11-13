@@ -1,5 +1,5 @@
 (library
- (public_name aoc2024)
+ (public_name aoc2019)
  (libraries cmdliner)
  (flags :standard -open Base -open Stdio)
  (inline_tests)

@@ -7,11 +7,11 @@ let () =
 (executable
  (name run%02d)
  (modules run%02d)
- (libraries aoc2024))
+ (libraries aoc2019))
 
 (rule
  (action
-  (write-file run%02d.ml "let () = Aoc2024.Day%02d.run ()")))
+  (write-file run%02d.ml "let () = Aoc2019.Day%02d.run ()")))
 
 (rule
  (action

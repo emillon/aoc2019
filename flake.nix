@@ -13,7 +13,7 @@
       {
         formatter = pkgs.nixpkgs-fmt;
         packages.default = pkgs.ocamlPackages.buildDunePackage {
-          pname = "aoc2024";
+          pname = "aoc2019";
           version = "n/a";
           src = ./.;
           buildInputs = with pkgs.ocamlPackages; [
