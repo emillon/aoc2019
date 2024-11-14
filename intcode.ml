@@ -115,8 +115,6 @@ let decode m ip =
 type state =
   { mem : t
   ; ip : int
-  ; input : unit -> int
-  ; output : int -> unit
   }
 
 let ( .%%{} ) t = function
@@ -124,60 +122,73 @@ let ( .%%{} ) t = function
   | Imm v -> v
 ;;
 
-let rec interpret t =
+type k =
+  | Interpret of state
+  | Input of (int -> k)
+  | Output of int * k
+  | Halted
+
+let interpret_step t =
   match decode t.mem t.ip with
   | Add { src1; src2; adst }, len ->
-    let t' = { t with mem = t.mem.%{adst} <- t.%%{src1} + t.%%{src2}; ip = t.ip + len } in
-    interpret t'
+    let t' = { mem = t.mem.%{adst} <- t.%%{src1} + t.%%{src2}; ip = t.ip + len } in
+    Interpret t'
   | Mul { src1; src2; adst }, len ->
-    let t' = { t with mem = t.mem.%{adst} <- t.%%{src1} * t.%%{src2}; ip = t.ip + len } in
-    interpret t'
+    let t' = { mem = t.mem.%{adst} <- t.%%{src1} * t.%%{src2}; ip = t.ip + len } in
+    Interpret t'
   | Input { adst }, len ->
-    let v = t.input () in
-    let t' = { t with mem = t.mem.%{adst} <- v; ip = t.ip + len } in
-    interpret t'
+    Input
+      (fun v ->
+        let t' = { mem = t.mem.%{adst} <- v; ip = t.ip + len } in
+        Interpret t')
   | Output { src }, len ->
-    t.output t.%%{src};
-    let t' = { t with ip = t.ip + len } in
-    interpret t'
-  | Hlt, _ -> t.mem
+    Output
+      ( t.%%{src}
+      , let t' = { t with ip = t.ip + len } in
+        Interpret t' )
+  | Hlt, _ -> Halted
   | Jnz { src; target }, len ->
     let ip = if t.%%{src} <> 0 then t.%%{target} else t.ip + len in
     let t' = { t with ip } in
-    interpret t'
+    Interpret t'
   | Jz { src; target }, len ->
     let ip = if t.%%{src} = 0 then t.%%{target} else t.ip + len in
     let t' = { t with ip } in
-    interpret t'
+    Interpret t'
   | Lt { src1; src2; adst }, len ->
     let v = if t.%%{src1} < t.%%{src2} then 1 else 0 in
-    let t' = { t with mem = t.mem.%{adst} <- v; ip = t.ip + len } in
-    interpret t'
+    let t' = { mem = t.mem.%{adst} <- v; ip = t.ip + len } in
+    Interpret t'
   | Eq { src1; src2; adst }, len ->
     let v = if t.%%{src1} = t.%%{src2} then 1 else 0 in
-    let t' = { t with mem = t.mem.%{adst} <- v; ip = t.ip + len } in
-    interpret t'
+    let t' = { mem = t.mem.%{adst} <- v; ip = t.ip + len } in
+    Interpret t'
 ;;
 
-let eval mem =
-  let m =
-    interpret
-      { mem
-      ; input = (fun _ -> failwith "no input function")
-      ; output = (fun _ -> failwith "no output function")
-      ; ip = 0
-      }
+let rec interpret t ~input ~output =
+  let rec interpret_k = function
+    | Interpret t' -> interpret ~input ~output t'
+    | Input f -> interpret_k (f (input ()))
+    | Output (v, k) ->
+      output v;
+      interpret_k k
+    | Halted -> t.mem
   in
+  interpret_k (interpret_step t)
+;;
+
+let create_state mem = { mem; ip = 0 }
+
+let eval mem =
+  let input _ = failwith "no input function" in
+  let output _ = failwith "no output function" in
+  let m = interpret ~input ~output (create_state mem) in
   Map.find_exn m 0
 ;;
 
-let eval_io mem ~input:input_value ~output =
-  let input_done = ref false in
-  let input () =
-    assert (not !input_done);
-    input_done := true;
-    input_value
-  in
-  let _ : t = interpret { mem; ip = 0; input; output } in
+let eval_io mem ~input ~output = interpret ~input ~output { mem; ip = 0 }
+
+let eval_io_ mem ~input ~output =
+  let _ : t = eval_io mem ~input ~output in
   ()
 ;;
