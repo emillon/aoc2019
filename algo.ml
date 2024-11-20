@@ -114,6 +114,11 @@ let%expect_test "egcd" =
   [%expect {| (1 -1 2) |}]
 ;;
 
+let gcd a b =
+  let g, _, _ = egcd a b in
+  g
+;;
+
 let sole = function
   | [ x ] -> x
   | _ -> invalid_arg "sole"
