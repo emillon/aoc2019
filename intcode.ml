@@ -13,6 +13,8 @@ let ( .%{}<- ) m key data = Map.set m ~key ~data
 type operand =
   | Pos of int
   | Imm of int
+  | Rel of int
+[@@deriving sexp]
 
 type instr =
   | Add of
@@ -46,6 +48,7 @@ type instr =
       ; src2 : operand
       ; adst : int
       }
+  | Rel_base_offset of { offset : operand }
 
 let decode_opcode n =
   let low = n % 100 in
@@ -62,30 +65,48 @@ let get_op m ip modes i =
   match op_mode with
   | '0' -> Pos m.%{ip + i}
   | '1' -> Imm m.%{ip + i}
+  | '2' -> Rel m.%{ip + i}
   | _ -> raise_s [%message "op mode" (op_mode : char)]
 ;;
 
-let as_pos = function
-  | Pos x -> x
-  | Imm _ -> assert false
+type state =
+  { mem : t
+  ; ip : int
+  ; rel_base : int
+  }
+
+type operand_value =
+  | Value of int
+  | Address of int
+
+let operand_value t = function
+  | Imm x -> Value x
+  | Pos x -> Address x
+  | Rel x -> Address (t.rel_base + x)
 ;;
 
-let decode m ip =
-  let low, modes = decode_opcode m.%{ip} in
-  let op i = get_op m ip modes i in
+let effective_address t op =
+  match operand_value t op with
+  | Address x -> x
+  | Value _ -> assert false
+;;
+
+let decode t =
+  let low, modes = decode_opcode t.mem.%{t.ip} in
+  let op i = get_op t.mem t.ip modes i in
   match low with
   | 1 ->
     let src1 = op 1 in
     let src2 = op 2 in
-    let adst = op 3 |> as_pos in
+    let adst = op 3 |> effective_address t in
     Add { src1; src2; adst }, 4
   | 2 ->
     let src1 = op 1 in
     let src2 = op 2 in
-    let adst = op 3 |> as_pos in
+    let adst = op 3 |> effective_address t in
     Mul { src1; src2; adst }, 4
   | 3 ->
-    let adst = op 1 |> as_pos in
+    let adst = op 1 |> effective_address t in
     Input { adst }, 2
   | 4 ->
     let src = op 1 in
@@ -101,25 +122,24 @@ let decode m ip =
   | 7 ->
     let src1 = op 1 in
     let src2 = op 2 in
-    let adst = op 3 |> as_pos in
+    let adst = op 3 |> effective_address t in
     Lt { src1; src2; adst }, 4
   | 8 ->
     let src1 = op 1 in
     let src2 = op 2 in
-    let adst = op 3 |> as_pos in
+    let adst = op 3 |> effective_address t in
     Eq { src1; src2; adst }, 4
+  | 9 ->
+    let offset = op 1 in
+    Rel_base_offset { offset }, 2
   | 99 -> Hlt, 1
   | opcode -> raise_s [%message "decode" (opcode : int)]
 ;;
 
-type state =
-  { mem : t
-  ; ip : int
-  }
-
-let ( .%%{} ) t = function
-  | Pos p -> t.mem.%{p}
-  | Imm v -> v
+let ( .%%{} ) t op =
+  match operand_value t op with
+  | Value v -> v
+  | Address p -> t.mem.%{p}
 ;;
 
 type k =
@@ -129,17 +149,17 @@ type k =
   | Halted
 
 let interpret_step t =
-  match decode t.mem t.ip with
+  match decode t with
   | Add { src1; src2; adst }, len ->
-    let t' = { mem = t.mem.%{adst} <- t.%%{src1} + t.%%{src2}; ip = t.ip + len } in
+    let t' = { t with mem = t.mem.%{adst} <- t.%%{src1} + t.%%{src2}; ip = t.ip + len } in
     Interpret t'
   | Mul { src1; src2; adst }, len ->
-    let t' = { mem = t.mem.%{adst} <- t.%%{src1} * t.%%{src2}; ip = t.ip + len } in
+    let t' = { t with mem = t.mem.%{adst} <- t.%%{src1} * t.%%{src2}; ip = t.ip + len } in
     Interpret t'
   | Input { adst }, len ->
     Input
       (fun v ->
-        let t' = { mem = t.mem.%{adst} <- v; ip = t.ip + len } in
+        let t' = { t with mem = t.mem.%{adst} <- v; ip = t.ip + len } in
         Interpret t')
   | Output { src }, len ->
     Output
@@ -157,11 +177,15 @@ let interpret_step t =
     Interpret t'
   | Lt { src1; src2; adst }, len ->
     let v = if t.%%{src1} < t.%%{src2} then 1 else 0 in
-    let t' = { mem = t.mem.%{adst} <- v; ip = t.ip + len } in
+    let t' = { t with mem = t.mem.%{adst} <- v; ip = t.ip + len } in
     Interpret t'
   | Eq { src1; src2; adst }, len ->
     let v = if t.%%{src1} = t.%%{src2} then 1 else 0 in
-    let t' = { mem = t.mem.%{adst} <- v; ip = t.ip + len } in
+    let t' = { t with mem = t.mem.%{adst} <- v; ip = t.ip + len } in
+    Interpret t'
+  | Rel_base_offset { offset }, len ->
+    let n = t.%%{offset} in
+    let t' = { t with ip = t.ip + len; rel_base = t.rel_base + n } in
     Interpret t'
 ;;
 
@@ -177,7 +201,7 @@ let rec interpret t ~input ~output =
   interpret_k (interpret_step t)
 ;;
 
-let create_state mem = { mem; ip = 0 }
+let create_state mem = { mem; ip = 0; rel_base = 0 }
 
 let eval mem =
   let input _ = failwith "no input function" in
@@ -186,7 +210,7 @@ let eval mem =
   Map.find_exn m 0
 ;;
 
-let eval_io mem ~input ~output = interpret ~input ~output { mem; ip = 0 }
+let eval_io mem ~input ~output = interpret ~input ~output (create_state mem)
 
 let eval_io_ mem ~input ~output =
   let _ : t = eval_io mem ~input ~output in
