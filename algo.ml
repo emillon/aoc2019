@@ -119,6 +119,11 @@ let gcd a b =
   g
 ;;
 
+let lcm a b =
+  let g = gcd a b in
+  a / g * b
+;;
+
 let sole = function
   | [ x ] -> x
   | _ -> invalid_arg "sole"
