@@ -16,3 +16,15 @@ type k =
   | Halted
 
 val interpret_step : state -> k
+
+module Signal : sig
+  type t
+
+  val create : name:string -> t
+  val write : t -> int -> unit
+  val read : t -> int
+end
+
+module Scheduler : sig
+  val run_both : (unit -> unit) -> (unit -> unit) -> unit
+end

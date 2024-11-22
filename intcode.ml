@@ -223,3 +223,66 @@ let eval_io_ mem ~input ~output =
   let _ : t = eval_io mem ~input ~output in
   ()
 ;;
+
+module Effect = Stdlib.Effect
+
+module Signal = struct
+  type t = string
+
+  let create ~name = name
+
+  type _ Effect.t += Read : t -> int Effect.t
+
+  let read var = Effect.perform (Read var)
+
+  type _ Effect.t += Write : t * int -> unit Effect.t
+
+  let write var x = Effect.perform (Write (var, x))
+end
+
+module Scheduler = struct
+  type status =
+    | Done : status
+    | Blocked_read : Signal.t * (int, status) Effect.Deep.continuation -> status
+    | Blocked_write : Signal.t * int * (unit, status) Effect.Deep.continuation -> status
+
+  let step f () =
+    Effect.Deep.match_with
+      f
+      ()
+      { retc = (fun _ -> Done)
+      ; exnc = raise
+      ; effc =
+          (fun (type a) (eff : a Effect.t) ->
+            match eff with
+            | Signal.Read v ->
+              Some (fun (k : (a, _) Effect.Deep.continuation) -> Blocked_read (v, k))
+            | Signal.Write (v, x) ->
+              Some (fun (k : (a, _) Effect.Deep.continuation) -> Blocked_write (v, x, k))
+            | _ -> None)
+      }
+  ;;
+
+  let rec run_both0 a b =
+    match a (), b () with
+    | Done, Done -> ()
+    | Done, Blocked_write (_v, _x, _k) -> ()
+    | Blocked_read (v1, k1), Blocked_write (v2, x, k2) ->
+      assert (String.equal v1 v2);
+      run_both0
+        (fun () -> Effect.Deep.continue k1 x)
+        (fun () -> Effect.Deep.continue k2 ())
+    | Blocked_write (v1, x, k1), Blocked_read (v2, k2) ->
+      assert (String.equal v1 v2);
+      run_both0
+        (fun () -> Effect.Deep.continue k1 ())
+        (fun () -> Effect.Deep.continue k2 x)
+    | Blocked_write _, Done -> assert false
+    | Blocked_write _, Blocked_write _ -> assert false
+    | Done, Blocked_read _ -> assert false
+    | Blocked_read _, Done -> assert false
+    | Blocked_read _, Blocked_read _ -> assert false
+  ;;
+
+  let run_both (a : unit -> unit) (b : unit -> unit) = run_both0 (step a) (step b)
+end
