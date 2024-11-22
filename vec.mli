@@ -10,3 +10,10 @@ val sub : t -> t -> t
 val cmul : t -> t -> t
 val l1_norm : t -> int
 val neighbours4 : t -> t list
+
+type bounding_box =
+  { min : t
+  ; max : t
+  }
+
+val bounding_box_map : (t, _, comparator_witness) Map.t -> bounding_box

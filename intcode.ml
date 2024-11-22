@@ -7,7 +7,14 @@ let parse s =
   |> Map.of_alist_exn (module Int)
 ;;
 
-let ( .%{} ) m a = Map.find_exn m a
+let ( .%{} ) m a =
+  match Map.find m a with
+  | Some v -> v
+  | None ->
+    assert (a >= 0);
+    0
+;;
+
 let ( .%{}<- ) m key data = Map.set m ~key ~data
 
 type operand =

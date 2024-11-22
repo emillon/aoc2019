@@ -12,3 +12,20 @@ let cmul (ax, ay) (bx, by) = (ax * bx) - (ay * by), (ay * bx) + (ax * by)
 let add (ax, ay) (bx, by) = ax + bx, ay + by
 let sub (ax, ay) (bx, by) = ax - bx, ay - by
 let neighbours4 (x, y) = [ x - 1, y; x + 1, y; x, y - 1; x, y + 1 ]
+
+type bounding_box =
+  { min : t
+  ; max : t
+  }
+
+let bounding_box_map m =
+  Map.fold
+    m
+    ~init:{ min = Int.max_value, Int.max_value; max = Int.min_value, Int.min_value }
+    ~f:(fun ~key:(x, y) ~data:_ { min = xmin, ymin; max = xmax, ymax } ->
+      let xmin' = Int.min x xmin in
+      let ymin' = Int.min y ymin in
+      let xmax' = Int.max x xmax in
+      let ymax' = Int.max y ymax in
+      { min = xmin', ymin'; max = xmax', ymax' })
+;;
