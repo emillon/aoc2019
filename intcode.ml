@@ -226,63 +226,78 @@ let eval_io_ mem ~input ~output =
 
 module Effect = Stdlib.Effect
 
+module Conc = struct
+  type _ Effect.t += Fork : (unit -> unit) -> unit Effect.t
+  type _ Effect.t += Yield : unit Effect.t
+  type _ Effect.t += Stop : unit Effect.t
+
+  let fork f = Effect.perform (Fork f)
+  let yield () = Effect.perform Yield
+  let stop () = Effect.perform Stop
+end
+
 module Signal = struct
-  type t = string
+  type t =
+    { name : string [@warning "-69"]
+    ; values : int Queue.t
+    }
 
-  let create ~name = name
+  let create ~name = { name; values = Queue.create () }
 
-  type _ Effect.t += Read : t -> int Effect.t
+  let rec read var =
+    match Queue.dequeue var.values with
+    | None ->
+      Conc.yield ();
+      read var
+    | Some v -> v
+  ;;
 
-  let read var = Effect.perform (Read var)
-
-  type _ Effect.t += Write : t * int -> unit Effect.t
-
-  let write var x = Effect.perform (Write (var, x))
+  let write var x = Queue.enqueue var.values x
 end
 
 module Scheduler = struct
-  type status =
-    | Done : status
-    | Blocked_read : Signal.t * (int, status) Effect.Deep.continuation -> status
-    | Blocked_write : Signal.t * int * (unit, status) Effect.Deep.continuation -> status
-
-  let step f () =
-    Effect.Deep.match_with
-      f
-      ()
-      { retc = (fun _ -> Done)
-      ; exnc = raise
-      ; effc =
-          (fun (type a) (eff : a Effect.t) ->
-            match eff with
-            | Signal.Read v ->
-              Some (fun (k : (a, _) Effect.Deep.continuation) -> Blocked_read (v, k))
-            | Signal.Write (v, x) ->
-              Some (fun (k : (a, _) Effect.Deep.continuation) -> Blocked_write (v, x, k))
-            | _ -> None)
-      }
+  let run_yield (main : unit -> unit) : unit =
+    let run_q = Queue.create () in
+    let enqueue k v =
+      let task () = Effect.Deep.continue k v in
+      Queue.enqueue run_q task
+    in
+    let dequeue () =
+      match Queue.dequeue run_q with
+      | None -> () (* done *)
+      | Some task -> task ()
+    in
+    let rec spawn (f : unit -> unit) : unit =
+      Effect.Deep.match_with
+        f
+        ()
+        { retc = dequeue
+        ; exnc = raise
+        ; effc =
+            (fun (type a) (eff : a Effect.t) ->
+              match eff with
+              | Conc.Yield ->
+                Some
+                  (fun (k : (a, unit) Effect.Deep.continuation) ->
+                    enqueue k ();
+                    dequeue ())
+              | Conc.Fork f ->
+                Some
+                  (fun (k : (a, unit) Effect.Deep.continuation) ->
+                    enqueue k ();
+                    spawn f)
+              | Conc.Stop -> Some (fun _ -> ())
+              | _ -> None)
+        }
+    in
+    spawn main
   ;;
 
-  let rec run_both0 a b =
-    match a (), b () with
-    | Done, Done -> ()
-    | Done, Blocked_write (_v, _x, _k) -> ()
-    | Blocked_read (v1, k1), Blocked_write (v2, x, k2) ->
-      assert (String.equal v1 v2);
-      run_both0
-        (fun () -> Effect.Deep.continue k1 x)
-        (fun () -> Effect.Deep.continue k2 ())
-    | Blocked_write (v1, x, k1), Blocked_read (v2, k2) ->
-      assert (String.equal v1 v2);
-      run_both0
-        (fun () -> Effect.Deep.continue k1 ())
-        (fun () -> Effect.Deep.continue k2 x)
-    | Blocked_write _, Done -> assert false
-    | Blocked_write _, Blocked_write _ -> assert false
-    | Done, Blocked_read _ -> assert false
-    | Blocked_read _, Done -> assert false
-    | Blocked_read _, Blocked_read _ -> assert false
+  let run_both (a : unit -> unit) (b : unit -> unit) =
+    run_yield (fun () ->
+      Conc.fork (fun () ->
+        a ();
+        Conc.stop ());
+      b ())
   ;;
-
-  let run_both (a : unit -> unit) (b : unit -> unit) = run_both0 (step a) (step b)
 end
