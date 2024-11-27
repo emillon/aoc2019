@@ -9,14 +9,6 @@ type state
 
 val create_state : t -> state
 
-type k =
-  | Interpret of state
-  | Input of (int -> k)
-  | Output of int * k
-  | Halted
-
-val interpret_step : state -> k
-
 module Signal : sig
   type t
 
@@ -27,4 +19,11 @@ end
 
 module Scheduler : sig
   val run_both : (unit -> unit) -> (unit -> unit) -> unit
+  val run_yield : (unit -> unit) -> unit
 end
+
+module Conc : sig
+  val fork : (unit -> unit) -> unit
+end
+
+val eval_scheduler : t -> in_signal:Signal.t -> out_signal:Signal.t -> unit

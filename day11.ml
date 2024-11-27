@@ -71,18 +71,13 @@ let rec robot s out_signal in_signal =
   robot s out_signal in_signal
 ;;
 
-let interp c out_signal in_signal =
-  let input () = Intcode.Signal.read in_signal in
-  let output n = Intcode.Signal.write out_signal n in
-  Intcode.eval_io_ c ~input ~output
-;;
-
 let run c initial_color =
   let code_to_robot = Intcode.Signal.create ~name:"code_to_robot" in
   let robot_to_code = Intcode.Signal.create ~name:"robot_to_code" in
   let s = ref (initial_state initial_color) in
   Intcode.Scheduler.run_both
-    (fun () -> interp c code_to_robot robot_to_code)
+    (fun () ->
+      Intcode.eval_scheduler c ~out_signal:code_to_robot ~in_signal:robot_to_code)
     (fun () -> robot s robot_to_code code_to_robot);
   !s
 ;;

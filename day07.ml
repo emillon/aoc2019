@@ -34,48 +34,42 @@ let f1 s =
   |> Option.value_exn
 ;;
 
-let next k done_ ~i ~o =
-  let vo =
-    match (!k : Intcode.k) with
-    | Interpret s -> Some (Intcode.interpret_step s)
-    | Input f -> Option.map ~f (Queue.dequeue i)
-    | Output (v, k) ->
-      Queue.enqueue o v;
-      Some k
-    | Halted ->
-      done_ := true;
-      None
-  in
-  match vo with
-  | None -> ()
-  | Some v -> k := v
-;;
-
 let run_feedback code pa pb pc pd pe =
-  let k0 = Intcode.Interpret (Intcode.create_state code) in
-  let sea = Queue.of_list [ pa; 0 ] in
-  let sab = Queue.singleton pb in
-  let sbc = Queue.singleton pc in
-  let scd = Queue.singleton pd in
-  let sde = Queue.singleton pe in
-  let ka = ref k0 in
-  let kb = ref k0 in
-  let kc = ref k0 in
-  let kd = ref k0 in
-  let ke = ref k0 in
-  let done_a = ref false in
-  let done_b = ref false in
-  let done_c = ref false in
-  let done_d = ref false in
-  let done_e = ref false in
-  while not (!done_a && !done_b && !done_c && !done_d && !done_e) do
-    next ka done_a ~i:sea ~o:sab;
-    next kb done_b ~i:sab ~o:sbc;
-    next kc done_c ~i:sbc ~o:scd;
-    next kd done_d ~i:scd ~o:sde;
-    next ke done_e ~i:sde ~o:sea
-  done;
-  Queue.dequeue_exn sea
+  let e_to_a = Intcode.Signal.create ~name:"e_to_a" in
+  let a_to_b = Intcode.Signal.create ~name:"a_to_b" in
+  let b_to_c = Intcode.Signal.create ~name:"b_to_c" in
+  let c_to_d = Intcode.Signal.create ~name:"c_to_d" in
+  let d_to_e = Intcode.Signal.create ~name:"d_to_e" in
+  let done_a = Intcode.Signal.create ~name:"a_done" in
+  let done_b = Intcode.Signal.create ~name:"b_done" in
+  let done_c = Intcode.Signal.create ~name:"c_done" in
+  let done_d = Intcode.Signal.create ~name:"d_done" in
+  let done_e = Intcode.Signal.create ~name:"e_done" in
+  let start in_signal out_signal done_signal p =
+    Intcode.Conc.fork (fun () ->
+      Intcode.Signal.write in_signal p;
+      Intcode.eval_scheduler code ~in_signal ~out_signal;
+      Intcode.Signal.write done_signal 1)
+  in
+  let wait done_signal =
+    let (_ : int) = Intcode.Signal.read done_signal in
+    ()
+  in
+  let r = ref None in
+  Intcode.Scheduler.run_yield (fun () ->
+    start e_to_a a_to_b done_a pa;
+    start a_to_b b_to_c done_b pb;
+    start b_to_c c_to_d done_c pc;
+    start c_to_d d_to_e done_d pd;
+    start d_to_e e_to_a done_e pe;
+    Intcode.Signal.write e_to_a 0;
+    wait done_a;
+    wait done_b;
+    wait done_c;
+    wait done_d;
+    wait done_e;
+    r := Some (Intcode.Signal.read e_to_a));
+  Option.value_exn !r
 ;;
 
 let f2 s =

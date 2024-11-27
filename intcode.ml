@@ -243,16 +243,24 @@ module Signal = struct
     }
 
   let create ~name = { name; values = Queue.create () }
+  let debug = false
 
   let rec read var =
     match Queue.dequeue var.values with
     | None ->
+      if debug then print_s [%message "read_blocked" (var.name : string)];
       Conc.yield ();
       read var
-    | Some v -> v
+    | Some v ->
+      if debug then print_s [%message "read_unblocked" (var.name : string) (v : int)];
+      v
   ;;
 
-  let write var x = Queue.enqueue var.values x
+  let write var x =
+    if debug
+    then print_s [%message "write" (var.name : string) (var.values : int Queue.t)];
+    Queue.enqueue var.values x
+  ;;
 end
 
 module Scheduler = struct
@@ -301,3 +309,9 @@ module Scheduler = struct
       b ())
   ;;
 end
+
+let eval_scheduler c ~in_signal ~out_signal =
+  let input () = Signal.read in_signal in
+  let output n = Signal.write out_signal n in
+  eval_io_ c ~input ~output
+;;
