@@ -24,6 +24,8 @@ end
 
 module Conc : sig
   val fork : (unit -> unit) -> unit
+  val stop : unit -> unit
+  val yield : unit -> unit
 end
 
 val eval_scheduler : t -> in_signal:Signal.t -> out_signal:Signal.t -> unit
