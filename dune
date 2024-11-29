@@ -1,6 +1,6 @@
 (library
  (public_name aoc2019)
- (libraries angstrom cmdliner)
+ (libraries angstrom cmdliner core_kernel.pairing_heap)
  (flags :standard -open Base -open Stdio)
  (inline_tests)
  (preprocess
