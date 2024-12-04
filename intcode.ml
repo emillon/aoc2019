@@ -65,15 +65,40 @@ let decode_opcode n =
 
 let max_param_count = 3
 
-let get_op m ip modes i =
+type kind =
+  | KPos
+  | KImm
+  | KRel
+
+let mode_l n =
+  let rec go n =
+    let q = n / 10 in
+    let r = n % 10 in
+    let k =
+      match r with
+      | 0 -> KPos
+      | 1 -> KImm
+      | 2 -> KRel
+      | _ -> raise_s [%message "mode_l" (r : int)]
+    in
+    if q = 0 then [ k ] else k :: go q
+  in
+  let pad l =
+    match l with
+    | [ _; _; _ ] -> l
+    | [ _; _ ] -> KPos :: l
+    | [ _ ] -> KPos :: KPos :: l
+    | _ -> assert false
+  in
+  go n |> List.rev |> pad
+;;
+
+let get_op m ip mode_l i =
   assert (i <= max_param_count);
-  let s = Printf.sprintf "%0*d" max_param_count modes |> String.rev in
-  let op_mode = s.[i - 1] in
-  match op_mode with
-  | '0' -> Pos m.%{ip + i}
-  | '1' -> Imm m.%{ip + i}
-  | '2' -> Rel m.%{ip + i}
-  | _ -> raise_s [%message "op mode" (op_mode : char)]
+  match List.nth_exn mode_l (max_param_count - i) with
+  | KPos -> Pos m.%{ip + i}
+  | KImm -> Imm m.%{ip + i}
+  | KRel -> Rel m.%{ip + i}
 ;;
 
 type state =
@@ -100,7 +125,8 @@ let effective_address t op =
 
 let decode t =
   let low, modes = decode_opcode t.mem.%{t.ip} in
-  let op i = get_op t.mem t.ip modes i in
+  let mode_l = mode_l modes in
+  let op i = get_op t.mem t.ip mode_l i in
   match low with
   | 1 ->
     let src1 = op 1 in
