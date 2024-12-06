@@ -77,7 +77,7 @@ let run c initial_color =
   let s = ref (initial_state initial_color) in
   Intcode.Scheduler.run_both
     (fun () ->
-      Intcode.eval_scheduler c ~out_signal:code_to_robot ~in_signal:robot_to_code)
+       Intcode.eval_scheduler c ~out_signal:code_to_robot ~in_signal:robot_to_code)
     (fun () -> robot s robot_to_code code_to_robot);
   !s
 ;;
